@@ -10,10 +10,13 @@ import java.util.ArrayList;
 import java.util.List;
 import net.objecthunter.exp4j.Expression;
 import net.objecthunter.exp4j.ExpressionBuilder;
+import javax.swing.*;
+import java.awt.*;
 
 public class RFM {
-    static final double EPSILON = 0.01;
+    static final double EPSILON = 1e-6;
     static UnivariateFunction func;
+    static JFrame currentChartFrame = null;
 
     private static double bisection(double a, double b) {
         double c = a;
@@ -44,6 +47,9 @@ public class RFM {
     }
 
     private static void plotFunctionAndRoot(UnivariateFunction function, double start, double end, double root) {
+        if (currentChartFrame != null) {
+            currentChartFrame.dispose();
+        }
         List<Double> xData = new ArrayList<>();
         List<Double> yData = new ArrayList<>();
 
@@ -65,6 +71,7 @@ public class RFM {
         chart.getStyler().setYAxisMin(Math.min(0, function.value(root)) - 1);  
         chart.getStyler().setYAxisMax(Math.max(0, function.value(root)) + 1);  
         new SwingWrapper<>(chart).displayChart();
+        currentChartFrame = new SwingWrapper<>(chart).displayChart();
     }
 
     private static double graphicalMethod(double start, double end) {
@@ -106,62 +113,234 @@ public class RFM {
         }
     }
 
+    private static double fixedPoint(double guess, Expression g) {
+        double x0 = guess;
+        double error = 1e-3;
+        double x1;
+        int maxIterations = 1000;
+        int i = 0;
+    
+        while (true) {
+            x1 = g.setVariable("x", x0).evaluate();  
+            if (Double.isNaN(x1) || Double.isInfinite(x1)) {
+                System.out.println("Function value is not defined at x = " + x0);
+                break;
+            }
+            if (Math.abs(x1 - x0) < error || i >= maxIterations) {
+                break;
+            }
+            x0 = x1;
+            i++;
+        }
+    
+        return x1;
+    }
+
+    private static double regulaFalsi(double a, double b) {
+        if (func.value(a) * func.value(b) >= 0) {
+            System.out.println("You have not assumed right a and b\n");
+            return 0;
+        }
+    
+        double c = a;
+        int maxIterations = 1000;
+    
+        for (int i = 0; i < maxIterations; i++) {
+            c = (a * func.value(b) - b * func.value(a)) / (func.value(b) - func.value(a));
+    
+            if (Math.abs(func.value(c)) < EPSILON) {
+                break;
+            }
+    
+            if (func.value(c) * func.value(a) < 0)
+                b = c;
+            else
+                a = c;
+        }
+        return c;
+    }
+    
+    private static double secant(double x0, double x1, double E) {
+        if (func.value(x0) * func.value(x1) >= 0) {
+            System.out.println("Initial guesses do not bracket a root");
+            return 0;
+        }
+    
+        double xm = 0;
+        int maxIterations = 1000;
+    
+        for (int i = 0; i < maxIterations; i++) {
+            double denominator = func.value(x1) - func.value(x0);
+            if (Math.abs(denominator) < EPSILON) {
+                System.out.println("Denominator is zero. Change initial values");
+                break;
+            }
+    
+            xm = x1 - ((func.value(x1) * (x1 - x0)) / denominator);
+            if (Math.abs(func.value(xm)) < EPSILON) {
+                break;
+            }
+            x0 = x1;
+            x1 = xm;
+        }
+    
+        return xm;
+    }
+
+
+    private static double newtonRaphson(double x) {
+        double h = func.value(x) / derivative(x);
+        while (Math.abs(h) >= EPSILON) {
+            h = func.value(x) / derivative(x);
+            x = x - h;
+        }
+    
+        return x;
+    }
+    
+    private static double derivative(double x) {
+        double h = 1e-15;
+        return (func.value(x + h) - func.value(x)) / h;
+    }
+
+    
+
     public static void main(String[] args) {
         SwingUtilities.invokeLater(() -> {
-            JTextField functionField = new JTextField(20);
-            JTextField xlField = new JTextField(5);
-            JTextField deltaXField = new JTextField(5);
-            JPanel myPanel = new JPanel();
-            myPanel.setLayout(new BoxLayout(myPanel, BoxLayout.Y_AXIS)); 
-            myPanel.add(new JLabel("Enter your function:"));
-            myPanel.add(functionField);
-            myPanel.add(Box.createVerticalStrut(15)); 
-            myPanel.add(new JLabel("Enter the value for xl:"));
-            myPanel.add(xlField);
-            myPanel.add(Box.createVerticalStrut(15)); 
-            myPanel.add(new JLabel("Enter the value for delta x:"));
-            myPanel.add(deltaXField);
-            int result = JOptionPane.showConfirmDialog(null, myPanel, 
-                   "Please Enter Your Function and Values for xl and delta x", JOptionPane.OK_CANCEL_OPTION);
-            if (result == JOptionPane.OK_OPTION) {
-                String functionStr = functionField.getText();
-                Expression e = new ExpressionBuilder(functionStr)
-                    .variable("x")
-                    .build();
+            final boolean[] runAgain = {true};
+            JFrame mainFrame = new JFrame(); 
+            mainFrame.setDefaultCloseOperation(JFrame.EXIT_ON_CLOSE);
+            String method = null;
+            while (runAgain[0]) {
+                if (method == null) {
+                    String[] methods = {"Bisection Method", "Graphical Method", "Incremental Method", "Fixed Point Method", "Regula Falsi Method", "Newton Raphson Method", "Secant Method"};
+                    method = (String) JOptionPane.showInputDialog(null, "Choose a method:", "Method", JOptionPane.QUESTION_MESSAGE, null, methods, methods[0]);
+                }
     
-                func = new UnivariateFunction() {
-                    @Override
-                    public double value(double x) {
-                        e.setVariable("x", x);
-                        return e.evaluate();
+                if (method != null) {
+                    JTextField functionField = new JTextField(20);
+                    JTextField xlField = new JTextField(5);
+                    JTextField xhField = new JTextField(5);
+                    JTextField deltaXField = new JTextField(5);
+                    JTextField gxField = new JTextField(20);
+                    JPanel panel = new JPanel(new GridLayout(0, 1));
+                    panel.add(new JLabel("Enter your function:"));
+                    panel.add(functionField);
+                    panel.add(new JLabel("Enter the value for xl:"));
+                    panel.add(xlField);
+    
+                    switch (method) {
+                        case "Bisection Method":
+                        case "Regula Falsi Method":
+                        case "Secant Method":
+                            panel.add(new JLabel("Enter the value for xh:"));
+                            panel.add(xhField);
+                            break;
+                        case "Graphical Method":
+                        case "Incremental Method":
+                        case "Newton Raphson Method":
+                            panel.add(new JLabel("Enter the delta x value:"));
+                            panel.add(deltaXField);
+                            break;
+                        case "Fixed Point Method":
+                            panel.add(new JLabel("Enter the delta x value:"));
+                            panel.add(deltaXField);
+                            panel.add(new JLabel("Enter the function g(x):"));
+                            panel.add(gxField);
+                            break;
                     }
-                };
     
-                double xl = Double.parseDouble(xlField.getText());
-                double deltaX = Double.parseDouble(deltaXField.getText());
-                String[] methods = {"Bisection Method", "Graphical Method", "Incremental Method"};
-                String method = (String) JOptionPane.showInputDialog(null, "Choose a method:", "Method", JOptionPane.QUESTION_MESSAGE, null, methods, methods[0]);
+                    int result = JOptionPane.showConfirmDialog(null, panel, "Please Enter Your Function and Values", JOptionPane.OK_CANCEL_OPTION);
+                    if (result == JOptionPane.OK_OPTION) {
+                        String functionStr = functionField.getText();
+                        Expression e = new ExpressionBuilder(functionStr)
+                            .variable("x")
+                            .build();
     
-                switch (method) {
-                    case "Bisection Method":
-                        double root = bisection(xl, 2);  
-                        new Thread(() -> plotFunctionAndRoot(func, xl, xl + deltaX, root)).start();
-                        JOptionPane.showMessageDialog(null, "The method found a root: " + root);
-                    break;
-                    case "Graphical Method":
-                        root = graphicalMethod(xl, xl + 300 * deltaX);  
-                        new Thread(() -> plotFunctionAndRoot(func, xl, xl + 300 * deltaX, root)).start();
-                        JOptionPane.showMessageDialog(null, "The estimated root is: " + root);
-                        break;
-                    case "Incremental Method":
-                        root = incrementalMethod(xl, deltaX);  
-                        new Thread(() -> plotFunctionAndRoot(func, xl, xl + deltaX, root)).start();
-                        JOptionPane.showMessageDialog(null, "The root found is: " + root);
-                        break;
-                    default:
-                        JOptionPane.showMessageDialog(null, "Invalid choice");
+                        func = new UnivariateFunction() {
+                            @Override
+                            public double value(double x) {
+                                e.setVariable("x", x);
+                                return e.evaluate();
+                            }
+                        };
+    
+                        double xl = Double.parseDouble(xlField.getText());
+                        double xh, deltaX, root;
+                        String gxStr;
+                        Expression g;
+    
+                        switch (method) {
+                            case "Bisection Method":
+                            case "Regula Falsi Method":
+                            case "Secant Method":
+                                xh = Double.parseDouble(xhField.getText());
+                                root = bisection(xl, xh);  
+                                new Thread(() -> plotFunctionAndRoot(func, xl, xh, root)).start();
+                                JOptionPane.showMessageDialog(null, "The method found a root: " + root);
+                                break;
+                            case "Graphical Method":
+                            case "Incremental Method":
+                            case "Newton Raphson Method":
+                                deltaX = Double.parseDouble(deltaXField.getText());
+                                root = graphicalMethod(xl, xl + 300 * deltaX);  
+                                new Thread(() -> plotFunctionAndRoot(func, xl, xl + 300 * deltaX, root)).start();
+                                JOptionPane.showMessageDialog(null, "The estimated root is: " + root);
+                                break;
+                            case "Fixed Point Method":
+                                deltaX = Double.parseDouble(deltaXField.getText());
+                                gxStr = gxField.getText();
+                                g = new ExpressionBuilder(gxStr)
+                                    .variable("x")
+                                    .build();
+                                root = fixedPoint(xl, g); 
+                                new Thread(() -> plotFunctionAndRoot(func, xl - deltaX, xl + deltaX, root)).start();
+                                JOptionPane.showMessageDialog(null, "The method found a root: " + root);
+                                break;
+                        }
+                    }
+                }
+    
+                String[] options = {"Change Method and Values", "Change Values", "Exit"};
+                JOptionPane optionPane = new JOptionPane(
+                    "Do you want to use the program again?",
+                    JOptionPane.QUESTION_MESSAGE,
+                    JOptionPane.YES_NO_CANCEL_OPTION,
+                    null,
+                    options,
+                    options[0]
+                );
+
+                JDialog dialog = optionPane.createDialog("Run Again");
+                dialog.setLocation(400, 550); 
+                dialog.setVisible(true);
+
+                Object selectedValue = optionPane.getValue();
+                if (selectedValue == null) {
+                    runAgain[0] = false;
+                } else {
+                    String selectedOption = (String) selectedValue;
+                    switch (selectedOption) {
+                        case "Change Method and Values":
+                            method = null;
+                            break;
+                        case "Change Values":
+                            break;
+                        case "Exit":
+                            System.exit(0);
+                            break;
+                        default:
+                            runAgain[0] = false;
+                            break;
+                    }
                 }
             }
-        });
-    }
+            mainFrame.dispose();
+    });
 }
+    
+    private static double getDoubleInput(String message) {
+        String valueStr = JOptionPane.showInputDialog(null, message);
+        return Double.parseDouble(valueStr);
+    }
+}    
